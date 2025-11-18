@@ -111,24 +111,40 @@ class ShapeFactory:
 
         return Polygon(points, "blue")
 
-    @staticmethod
-    def create_complex_shape(center_x, center_y, size=50):
-        """Альтернативное название для создания двойного треугольника"""
-        return ShapeFactory.create_double_triangle(center_x, center_y, size)
-
 
 # =============================================================================
-# ЛАБОРАТОРНАЯ РАБОТА №3 - Сплайновые кривые
+# ЛАБОРАТОРНАЯ РАБОТА №3 - Сплайновые кривые (УЛУЧШЕННАЯ ВЕРСИЯ)
 # =============================================================================
 
 class SplineCurve:
-    def __init__(self, control_points=None, color="red", segments=20):
+    def __init__(self, control_points=None, color="red", segments=100):
         self.control_points = control_points if control_points else []
         self.color = color
         self.segments = segments
+        self.show_control_lines = True
+        self.show_points = True
+        self.line_width = 3
 
     def add_control_point(self, point):
+        """Добавить контрольную точку"""
         self.control_points.append(point)
+
+    def clear_control_points(self):
+        """Очистить все контрольные точки"""
+        self.control_points.clear()
+
+    def remove_last_control_point(self):
+        """Удалить последнюю контрольную точку"""
+        if self.control_points:
+            return self.control_points.pop()
+        return None
+
+    def insert_control_point(self, index, point):
+        """Вставить контрольную точку в указанную позицию"""
+        if 0 <= index <= len(self.control_points):
+            self.control_points.insert(index, point)
+            return True
+        return False
 
     def bezier_point(self, t, points):
         """Вычисление точки на кривой Безье для параметра t"""
@@ -161,33 +177,186 @@ class SplineCurve:
             denominator *= i
         return numerator // denominator
 
-    def draw(self, canvas):
-        """Рисование сплайновой кривой"""
+    def draw_control_lines(self, canvas):
+        """Рисование контрольных линий между точками"""
         if len(self.control_points) < 2:
             return
 
-        # Для кубических кривых Безье нужны группы по 4 точки
+        points_coords = []
+        for point in self.control_points:
+            points_coords.extend([point.x, point.y])
+
+        # Рисуем пунктирные контрольные линии
+        canvas.create_line(points_coords, fill="gray", width=1, dash=(4, 2))
+
+    def draw_control_points(self, canvas):
+        """Рисование контрольных точек с номерами"""
+        for i, point in enumerate(self.control_points):
+            # Рисуем точку
+            canvas.create_oval(point.x - 5, point.y - 5, point.x + 5, point.y + 5,
+                               fill="green", outline="darkgreen", width=2)
+
+            # Подписываем точку номером
+            canvas.create_text(point.x, point.y - 18, text=str(i + 1),
+                               fill="darkgreen", font=("Arial", 10, "bold"))
+
+    def draw_composite_bezier(self, canvas):
+        """Рисование составной кривой Безье из множества контрольных точек"""
+        if len(self.control_points) < 2:
+            return
+
+        # Для составной кривой Безье используем все точки
         curve_points = []
 
-        # Разбиваем контрольные точки на сегменты по 4 точки
-        for i in range(0, len(self.control_points) - 1, 3):
-            if i + 3 < len(self.control_points):
-                segment_points = self.control_points[i:i + 4]
+        # Генерируем точки для всей кривой
+        total_segments = len(self.control_points) - 1
+        if total_segments > 0:
+            for seg in range(total_segments):
+                for j in range(self.segments // total_segments + 1):
+                    t = j / (self.segments // total_segments)
+                    # Используем текущую и следующую точки для линейной интерполяции
+                    if seg < len(self.control_points) - 1:
+                        p1 = self.control_points[seg]
+                        p2 = self.control_points[seg + 1]
+                        x = p1.x + (p2.x - p1.x) * t
+                        y = p1.y + (p2.y - p1.y) * t
+                        curve_points.append((x, y))
 
-                # Генерируем точки кривой для этого сегмента
-                for j in range(self.segments + 1):
-                    t = j / self.segments
-                    point = self.bezier_point(t, segment_points)
-                    curve_points.append((point.x, point.y))
-
-        # Рисуем кривую
+        # Рисуем сглаженную кривую
         if len(curve_points) > 1:
-            canvas.create_line(curve_points, fill=self.color, width=2, smooth=True)
+            canvas.create_line(curve_points, fill=self.color, width=self.line_width, smooth=True)
 
-        # Рисуем контрольные точки
-        for point in self.control_points:
-            canvas.create_oval(point.x - 3, point.y - 3, point.x + 3, point.y + 3,
-                               fill="green", outline="green")
+    def draw_cubic_bezier_segments(self, canvas):
+        """Рисование кубических кривых Безье сегментами по 4 точки"""
+        if len(self.control_points) < 4:
+            return self.draw_composite_bezier(canvas)
+
+        colors = ["red", "blue", "green", "purple", "orange", "cyan", "magenta"]
+        color_index = 0
+
+        # Разбиваем на сегменты по 4 точки с перекрытием
+        for i in range(0, len(self.control_points) - 3, 3):
+            segment_points = self.control_points[i:i + 4]
+            color = colors[color_index % len(colors)]
+            color_index += 1
+
+            # Генерируем точки для этого сегмента
+            segment_curve = []
+            for j in range(self.segments + 1):
+                t = j / self.segments
+                point = self.bezier_point(t, segment_points)
+                segment_curve.append((point.x, point.y))
+
+            # Рисуем сегмент
+            if len(segment_curve) > 1:
+                canvas.create_line(segment_curve, fill=color, width=self.line_width - 1, smooth=True)
+
+    def draw(self, canvas):
+        """Рисование сплайновой кривой с контрольными точками и линиями"""
+        if len(self.control_points) < 2:
+            return
+
+        # Рисуем контрольные линии (если включено)
+        if self.show_control_lines and len(self.control_points) >= 2:
+            self.draw_control_lines(canvas)
+
+        # Рисуем кривую Безье
+        if len(self.control_points) >= 4:
+            self.draw_cubic_bezier_segments(canvas)
+        else:
+            self.draw_composite_bezier(canvas)
+
+        # Рисуем контрольные точки (если включено)
+        if self.show_points:
+            self.draw_control_points(canvas)
+
+    def toggle_control_lines(self):
+        """Переключение отображения контрольных линий"""
+        self.show_control_lines = not self.show_control_lines
+
+    def toggle_points(self):
+        """Переключение отображения контрольных точек"""
+        self.show_points = not self.show_points
+
+    def set_line_width(self, width):
+        """Установить толщину линии"""
+        self.line_width = max(1, min(width, 10))
+
+    def get_point_count(self):
+        """Получить количество контрольных точек"""
+        return len(self.control_points)
+
+    def get_bounds(self):
+        """Получить границы сплайна"""
+        if not self.control_points:
+            return 0, 0, 0, 0
+
+        x_coords = [p.x for p in self.control_points]
+        y_coords = [p.y for p in self.control_points]
+
+        return min(x_coords), min(y_coords), max(x_coords), max(y_coords)
+
+
+class SplineManager:
+    """Менеджер для управления несколькими сплайнами"""
+
+    def __init__(self):
+        self.splines = []
+        self.current_spline = None
+        self.spline_colors = ["red", "blue", "green", "purple", "orange", "brown", "pink"]
+        self.color_index = 0
+
+    def start_new_spline(self, color=None):
+        """Начать новый сплайн"""
+        if color is None:
+            color = self.spline_colors[self.color_index % len(self.spline_colors)]
+            self.color_index += 1
+
+        self.current_spline = SplineCurve(color=color)
+        return self.current_spline
+
+    def finish_current_spline(self):
+        """Завершить текущий сплайн"""
+        if self.current_spline and self.current_spline.get_point_count() >= 2:
+            self.splines.append(self.current_spline)
+            finished_spline = self.current_spline
+            self.current_spline = None
+            return finished_spline
+        return None
+
+    def cancel_current_spline(self):
+        """Отменить текущий сплайн"""
+        cancelled_spline = self.current_spline
+        self.current_spline = None
+        return cancelled_spline
+
+    def get_current_spline(self):
+        """Получить текущий сплайн"""
+        return self.current_spline
+
+    def clear_all_splines(self):
+        """Очистить все сплайны"""
+        self.splines.clear()
+        self.current_spline = None
+
+    def remove_last_spline(self):
+        """Удалить последний завершенный сплайн"""
+        if self.splines:
+            return self.splines.pop()
+        return None
+
+    def get_spline_count(self):
+        """Получить количество завершенных сплайнов"""
+        return len(self.splines)
+
+    def get_total_point_count(self):
+        """Получить общее количество контрольных точек"""
+        total = 0
+        for spline in self.splines:
+            total += spline.get_point_count()
+        if self.current_spline:
+            total += self.current_spline.get_point_count()
+        return total
 
 
 # =============================================================================
@@ -207,28 +376,21 @@ class BitmapResource:
         center_y = self.height // 2
         size = min(center_x, center_y) - 2
 
-        # Заполняем фон
-        for y in range(self.height):
-            for x in range(self.width):
-                self.pixels[y][x] = (240, 240, 240)  # Светло-серый фон
-
         # Создаем PIL изображение для рисования
         pil_image = Image.new('RGB', (self.width, self.height), (240, 240, 240))
         draw = ImageDraw.Draw(pil_image)
 
         # Координаты для двойного треугольника
-        # Первый треугольник
         triangle1 = [
-            (center_x + size, center_y),  # Правая
-            (center_x, center_y - size),  # Верхняя
-            (center_x - size // 2, center_y)  # Левая
+            (center_x + size, center_y),
+            (center_x, center_y - size),
+            (center_x - size // 2, center_y)
         ]
 
-        # Второй треугольник
         triangle2 = [
-            (center_x - size, center_y),  # Левая
-            (center_x, center_y + size),  # Нижняя
-            (center_x + size // 2, center_y)  # Правая
+            (center_x - size, center_y),
+            (center_x, center_y + size),
+            (center_x + size // 2, center_y)
         ]
 
         # Рисуем треугольники
@@ -253,77 +415,8 @@ class BitmapResource:
         return self.photo_image
 
 
-class PatternBrush:
-    def __init__(self, bitmap_resource):
-        self.bitmap = bitmap_resource
-        self.pattern_image = self.create_pattern_image()
-
-    def create_pattern_image(self):
-        """Создать изображение паттерна для кисти"""
-        width, height = self.bitmap.width, self.bitmap.height
-        pil_image = Image.new('RGB', (width * 4, height * 4), (255, 255, 255))
-
-        # Заполняем паттерном
-        for tile_y in range(4):
-            for tile_x in range(4):
-                for y in range(height):
-                    for x in range(width):
-                        pixel = self.bitmap.pixels[y % height][x % width]
-                        pil_image.putpixel((tile_x * width + x, tile_y * height + y), pixel)
-
-        return ImageTk.PhotoImage(pil_image)
-
-    def fill_shape(self, canvas, polygon):
-        """Заполнить фигуру паттернной кистью"""
-        if not polygon.points:
-            return
-
-        # Получаем координаты полигона
-        coords = []
-        for point in polygon.points:
-            coords.extend([point.x, point.y])
-
-        # Создаем временное изображение для маски
-        bounds = polygon.get_bounds()
-        width = int(bounds[2] - bounds[0]) + 10
-        height = int(bounds[3] - bounds[1]) + 10
-
-        if width <= 0 or height <= 0:
-            return
-
-        # Создаем изображение с паттерном
-        pattern_pil = Image.new('RGB', (width, height), (255, 255, 255))
-        pattern_draw = ImageDraw.Draw(pattern_pil)
-
-        # Смещаем координаты для отрисовки
-        shifted_coords = [(x - bounds[0] + 5, y - bounds[1] + 5) for x, y in zip(coords[::2], coords[1::2])]
-
-        # Заполняем паттерном
-        pattern_draw.polygon(shifted_coords, fill=(100, 100, 100))
-
-        # Накладываем текстуру
-        pattern_width = self.bitmap.width * 4
-        pattern_height = self.bitmap.height * 4
-
-        for y in range(height):
-            for x in range(width):
-                if pattern_pil.getpixel((x, y)) != (255, 255, 255):
-                    # Используем цвета из исходного bitmap
-                    pattern_x = x % self.bitmap.width
-                    pattern_y = y % self.bitmap.height
-                    color = self.bitmap.pixels[pattern_y][pattern_x]
-                    pattern_pil.putpixel((x, y), color)
-
-        # Конвертируем в PhotoImage и отображаем
-        result_image = ImageTk.PhotoImage(pattern_pil)
-        canvas.create_image(bounds[0] - 5, bounds[1] - 5, image=result_image, anchor='nw')
-
-        # Сохраняем ссылку чтобы изображение не удалилось сборщиком мусора
-        canvas.pattern_fill_image = result_image
-
-
 # =============================================================================
-# ЛАБОРАТОРНАЯ РАБОТА №5 - Загрузка BMP и масштабирование (УЛУЧШЕННАЯ ВЕРСИЯ)
+# ЛАБОРАТОРНАЯ РАБОТА №5 - Загрузка BMP и масштабирование
 # =============================================================================
 
 class EnhancedBMPLoader:
@@ -332,57 +425,6 @@ class EnhancedBMPLoader:
         self.width = 0
         self.height = 0
         self.bits_per_pixel = 0
-
-    def load_bmp(self, filename):
-        """Загрузка реального BMP файла"""
-        try:
-            with open(filename, 'rb') as f:
-                # Читаем заголовок файла
-                file_header = f.read(14)
-                if file_header[0:2] != b'BM':
-                    raise ValueError("Not a BMP file")
-
-                # Читаем информационный заголовок
-                info_header = f.read(40)
-                self.width = struct.unpack('<I', info_header[4:8])[0]
-                self.height = struct.unpack('<I', info_header[8:12])[0]
-                self.bits_per_pixel = struct.unpack('<H', info_header[14:16])[0]
-
-                # Пропускаем до начала данных пикселей
-                data_offset = struct.unpack('<I', file_header[10:14])[0]
-                f.seek(data_offset)
-
-                # Читаем данные пикселей
-                row_size = ((self.width * self.bits_per_pixel + 31) // 32) * 4
-                self.image_data = []
-
-                # BMP хранит строки в обратном порядке (снизу вверх)
-                for y in range(self.height - 1, -1, -1):
-                    row_data = f.read(row_size)
-                    row_pixels = []
-
-                    for x in range(self.width):
-                        if self.bits_per_pixel == 24:
-                            # BGR format
-                            b = row_data[x * 3]
-                            g = row_data[x * 3 + 1]
-                            r = row_data[x * 3 + 2]
-                            row_pixels.append((r, g, b))
-                        elif self.bits_per_pixel == 8:
-                            # Grayscale
-                            intensity = row_data[x]
-                            row_pixels.append((intensity, intensity, intensity))
-                        else:
-                            # Для простоты - серый для других форматов
-                            row_pixels.append((128, 128, 128))
-
-                    self.image_data.append(row_pixels)
-
-                return True
-
-        except Exception as e:
-            print(f"Error loading BMP: {e}")
-            return False
 
     def create_test_image(self):
         """Создание тестового изображения с деталями для демонстрации"""
@@ -442,31 +484,7 @@ class EnhancedBMPLoader:
                     nearest_y = min(int(round(src_y)), self.height - 1)
                     scaled_data[y][x] = self.image_data[nearest_y][nearest_x]
 
-                elif mode == "linear":
-                    # Билинейная интерполяция
-                    x1 = int(math.floor(src_x))
-                    y1 = int(math.floor(src_y))
-                    x2 = min(x1 + 1, self.width - 1)
-                    y2 = min(y1 + 1, self.height - 1)
-
-                    dx = src_x - x1
-                    dy = src_y - y1
-
-                    # Интерполяция по X
-                    top = self.interpolate_color(self.image_data[y1][x1], self.image_data[y1][x2], dx)
-                    bottom = self.interpolate_color(self.image_data[y2][x1], self.image_data[y2][x2], dx)
-
-                    # Интерполяция по Y
-                    scaled_data[y][x] = self.interpolate_color(top, bottom, dy)
-
         return scaled_data, new_width, new_height
-
-    def interpolate_color(self, color1, color2, t):
-        """Интерполяция между двумя цветами"""
-        r = int(color1[0] * (1 - t) + color2[0] * t)
-        g = int(color1[1] * (1 - t) + color2[1] * t)
-        b = int(color1[2] * (1 - t) + color2[2] * t)
-        return (r, g, b)
 
     def get_photo_image(self, data=None, width=None, height=None):
         """Получить PhotoImage для отображения"""
@@ -477,18 +495,14 @@ class EnhancedBMPLoader:
         h = len(data_to_use)
         w = len(data_to_use[0]) if h > 0 else 0
 
-        # Масштабируем для отображения если нужно
-        display_width = width if width else w
-        display_height = height if height else h
-
         pil_image = Image.new('RGB', (w, h))
         for y in range(h):
             for x in range(w):
                 pil_image.putpixel((x, y), data_to_use[y][x])
 
         # Масштабируем для отображения
-        if display_width != w or display_height != h:
-            pil_image = pil_image.resize((display_width, display_height), Image.NEAREST)
+        if width and height:
+            pil_image = pil_image.resize((width, height), Image.NEAREST)
 
         return ImageTk.PhotoImage(pil_image)
 
@@ -500,17 +514,17 @@ class EnhancedBMPLoader:
 class PainterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Painter - Лабораторные работы 2-5 (Вариант 16 - Двойной треугольник)")
+        self.root.title("Painter - Лабораторные работы 2-5 (Улучшенные сплайны)")
         self.root.geometry("1200x800")
 
         # Данные приложения
         self.current_polygon = None
         self.polygons = []
-        self.splines = []
-        self.current_spline = None
+        self.spline_manager = SplineManager()  # Используем менеджер сплайнов
         self.bitmap_resources = []
-        self.bmp_loader = EnhancedBMPLoader()  # ИСПРАВЛЕНО: используем улучшенный загрузчик
+        self.bmp_loader = EnhancedBMPLoader()
         self.current_scaling_mode = "nearest"
+        self.is_adding_points = False
 
         # Создание интерфейса
         self.create_interface()
@@ -525,7 +539,7 @@ class PainterApp:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Left panel - controls
-        control_frame = ttk.Frame(main_frame, width=250)
+        control_frame = ttk.Frame(main_frame, width=300)
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
         control_frame.pack_propagate(False)
 
@@ -543,8 +557,6 @@ class PainterApp:
 
         ttk.Button(lab2_frame, text="Создать двойной треугольник",
                    command=self.create_double_triangle).pack(fill=tk.X, pady=2)
-        ttk.Button(lab2_frame, text="Удалить все",
-                   command=self.clear_all).pack(fill=tk.X, pady=2)
 
         # Transform controls
         transform_frame = ttk.Frame(lab2_frame)
@@ -564,14 +576,57 @@ class PainterApp:
         ttk.Button(lab2_frame, text="Применить преобразования",
                    command=self.apply_transformations).pack(fill=tk.X, pady=2)
 
-        # ===== LAB 3 Controls =====
-        lab3_frame = ttk.LabelFrame(control_frame, text="Лаб. 3: Сплайны", padding=5)
+        # ===== LAB 3 Controls (УЛУЧШЕННЫЕ) =====
+        lab3_frame = ttk.LabelFrame(control_frame, text="Лаб. 3: Сплайны (Улучшенные)", padding=5)
         lab3_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Button(lab3_frame, text="Начать сплайн",
+        # Основные операции со сплайнами
+        ttk.Button(lab3_frame, text="Начать новый сплайн",
                    command=self.start_spline).pack(fill=tk.X, pady=2)
-        ttk.Button(lab3_frame, text="Закончить сплайн",
+
+        ttk.Button(lab3_frame, text="Добавить точку к сплайну",
+                   command=self.enable_point_adding).pack(fill=tk.X, pady=2)
+
+        ttk.Button(lab3_frame, text="Завершить сплайн",
                    command=self.finish_spline).pack(fill=tk.X, pady=2)
+
+        # Управление точками текущего сплайна
+        points_frame = ttk.Frame(lab3_frame)
+        points_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(points_frame, text="Удалить последнюю точку",
+                   command=self.remove_last_spline_point).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        ttk.Button(points_frame, text="Очистить сплайн",
+                   command=self.clear_current_spline).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=2)
+
+        # Настройки отображения
+        display_frame = ttk.Frame(lab3_frame)
+        display_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(display_frame, text="Вкл/Выкл контрольные линии",
+                   command=self.toggle_control_lines).pack(fill=tk.X, pady=2)
+
+        ttk.Button(display_frame, text="Вкл/Выкл точки",
+                   command=self.toggle_points).pack(fill=tk.X, pady=2)
+
+        # Управление всеми сплайнами
+        splines_frame = ttk.Frame(lab3_frame)
+        splines_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(splines_frame, text="Удалить последний сплайн",
+                   command=self.remove_last_spline).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        ttk.Button(splines_frame, text="Очистить все сплайны",
+                   command=self.clear_all_splines).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=2)
+
+        # Информация о сплайнах
+        info_frame = ttk.Frame(lab3_frame)
+        info_frame.pack(fill=tk.X, pady=5)
+
+        self.spline_info_var = tk.StringVar(value="Сплайны: 0, Точки: 0")
+        ttk.Label(info_frame, textvariable=self.spline_info_var,
+                  font=("Arial", 9), background="#f0f0f0").pack(fill=tk.X)
 
         # ===== LAB 4 Controls =====
         lab4_frame = ttk.LabelFrame(control_frame, text="Лаб. 4: Растры", padding=5)
@@ -579,46 +634,43 @@ class PainterApp:
 
         ttk.Button(lab4_frame, text="Показать растровый шаблон",
                    command=self.show_bitmap_pattern).pack(fill=tk.X, pady=2)
-        ttk.Button(lab4_frame, text="Заполнить фигуру кистью",
-                   command=self.fill_with_pattern_brush).pack(fill=tk.X, pady=2)
 
         # ===== LAB 5 Controls =====
         lab5_frame = ttk.LabelFrame(control_frame, text="Лаб. 5: BMP + Масштабирование", padding=5)
         lab5_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Button(lab5_frame, text="Загрузить BMP файл",
-                   command=self.load_bmp_file).pack(fill=tk.X, pady=2)
         ttk.Button(lab5_frame, text="Создать тестовое изображение",
                    command=self.create_test_bmp_image).pack(fill=tk.X, pady=2)
 
-        # Новые элементы управления для масштабирования
-        scale_factor_frame = ttk.Frame(lab5_frame)
-        scale_factor_frame.pack(fill=tk.X, pady=5)
+        # Масштабирование
+        scale_frame = ttk.Frame(lab5_frame)
+        scale_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Label(scale_factor_frame, text="Коэффициент:").pack(side=tk.LEFT)
+        ttk.Label(scale_frame, text="Коэффициент:").pack(side=tk.LEFT)
         self.scale_var = tk.StringVar(value="2.0")
-        scale_combo = ttk.Combobox(scale_factor_frame, textvariable=self.scale_var,
+        scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
                                    values=["0.25", "0.5", "2.0", "4.0"], width=8)
         scale_combo.pack(side=tk.LEFT, padx=5)
-
-        scaling_frame = ttk.Frame(lab5_frame)
-        scaling_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(scaling_frame, text="Режим масштабирования:").pack(anchor="w")
-        self.scaling_mode = tk.StringVar(value="nearest")
-        ttk.Radiobutton(scaling_frame, text="Ближайший сосед",
-                        variable=self.scaling_mode, value="nearest").pack(anchor="w")
-        ttk.Radiobutton(scaling_frame, text="Билинейная",
-                        variable=self.scaling_mode, value="linear").pack(anchor="w")
 
         ttk.Button(lab5_frame, text="Применить масштабирование",
                    command=self.apply_scaling).pack(fill=tk.X, pady=2)
 
+        # Общие кнопки
+        common_frame = ttk.LabelFrame(control_frame, text="Общие", padding=5)
+        common_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Button(common_frame, text="Удалить все объекты",
+                   command=self.clear_all).pack(fill=tk.X, pady=2)
+
+        ttk.Button(common_frame, text="Обновить отображение",
+                   command=self.redraw_canvas).pack(fill=tk.X, pady=2)
+
         # Bind canvas events
         self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<Motion>", self.on_canvas_motion)
 
         # Status bar
-        self.status_var = tk.StringVar(value="Готов")
+        self.status_var = tk.StringVar(value="Готов к работе")
         ttk.Label(control_frame, textvariable=self.status_var,
                   relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -655,21 +707,108 @@ class PainterApp:
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректные числовые значения")
 
-    # ===== LAB 3 Methods =====
+    # ===== LAB 3 Methods (УЛУЧШЕННЫЕ) =====
     def start_spline(self):
-        """Начало создания сплайна"""
-        self.current_spline = SplineCurve(color="red")
-        self.status_var.set("Режим создания сплайна - кликайте по canvas")
+        """Начало создания нового сплайна"""
+        self.spline_manager.start_new_spline()
+        self.is_adding_points = True
+        self.update_spline_info()
+        self.status_var.set("Режим создания сплайна - кликайте по canvas для добавления точек")
+
+    def enable_point_adding(self):
+        """Включить режим добавления точек к текущему сплайну"""
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            self.is_adding_points = True
+            self.status_var.set("Режим добавления точек - кликайте по canvas")
+        else:
+            messagebox.showwarning("Предупреждение", "Сначала начните создание сплайна")
 
     def finish_spline(self):
-        """Завершение создания сплайна"""
-        if self.current_spline and len(self.current_spline.control_points) >= 4:
-            self.splines.append(self.current_spline)
-            self.current_spline = None
+        """Завершение создания текущего сплайна"""
+        finished_spline = self.spline_manager.finish_current_spline()
+        if finished_spline:
+            self.is_adding_points = False
             self.redraw_canvas()
-            self.status_var.set("Сплайн завершен")
+            point_count = finished_spline.get_point_count()
+            self.update_spline_info()
+            self.status_var.set(f"Сплайн завершен с {point_count} контрольными точками")
         else:
-            messagebox.showwarning("Предупреждение", "Нужно как минимум 4 контрольные точки для сплайна")
+            messagebox.showwarning("Предупреждение", "Нужно как минимум 2 контрольные точки для сплайна")
+
+    def remove_last_spline_point(self):
+        """Удалить последнюю контрольную точку текущего сплайна"""
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            removed_point = current_spline.remove_last_control_point()
+            if removed_point:
+                self.redraw_canvas()
+                point_count = current_spline.get_point_count()
+                self.update_spline_info()
+                self.status_var.set(f"Удалена точка. Осталось: {point_count}")
+            else:
+                self.status_var.set("Нет точек для удаления")
+        else:
+            messagebox.showwarning("Предупреждение", "Нет активного сплайна")
+
+    def clear_current_spline(self):
+        """Очистить текущий сплайн"""
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            current_spline.clear_control_points()
+            self.redraw_canvas()
+            self.update_spline_info()
+            self.status_var.set("Текущий сплайн очищен")
+
+    def toggle_control_lines(self):
+        """Переключить отображение контрольных линий"""
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            current_spline.toggle_control_lines()
+            self.redraw_canvas()
+            state = "включены" if current_spline.show_control_lines else "выключены"
+            self.status_var.set(f"Контрольные линии {state}")
+
+    def toggle_points(self):
+        """Переключить отображение контрольных точек"""
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            current_spline.toggle_points()
+            self.redraw_canvas()
+            state = "включены" if current_spline.show_points else "выключены"
+            self.status_var.set(f"Контрольные точки {state}")
+
+    def remove_last_spline(self):
+        """Удалить последний завершенный сплайн"""
+        removed_spline = self.spline_manager.remove_last_spline()
+        if removed_spline:
+            self.redraw_canvas()
+            self.update_spline_info()
+            self.status_var.set("Удален последний сплайн")
+        else:
+            messagebox.showwarning("Предупреждение", "Нет завершенных сплайнов")
+
+    def clear_all_splines(self):
+        """Очистить все сплайны"""
+        self.spline_manager.clear_all_splines()
+        self.is_adding_points = False
+        self.redraw_canvas()
+        self.update_spline_info()
+        self.status_var.set("Все сплайны удалены")
+
+    def update_spline_info(self):
+        """Обновить информацию о сплайнах"""
+        spline_count = self.spline_manager.get_spline_count()
+        total_points = self.spline_manager.get_total_point_count()
+        current_spline = self.spline_manager.get_current_spline()
+
+        if current_spline:
+            current_points = current_spline.get_point_count()
+            info_text = f"Сплайны: {spline_count}, Точки: {total_points} (текущий: {current_points})"
+        else:
+            info_text = f"Сплайны: {spline_count}, Точки: {total_points}"
+
+        self.spline_info_var.set(info_text)
 
     # ===== LAB 4 Methods =====
     def show_bitmap_pattern(self):
@@ -692,40 +831,21 @@ class PainterApp:
 
         self.status_var.set("Показан растровый шаблон")
 
-    def fill_with_pattern_brush(self):
-        """Заполнить текущую фигуру паттернной кистью"""
-        if not self.current_polygon:
-            messagebox.showwarning("Предупреждение", "Сначала создайте фигуру")
-            return
-
-        if not self.bitmap_resources:
-            return
-
-        bitmap = self.bitmap_resources[0]
-        brush = PatternBrush(bitmap)
-        brush.fill_shape(self.canvas, self.current_polygon)
-
-        self.status_var.set("Фигура заполнена паттернной кистью")
-
-    # ===== LAB 5 Methods (УЛУЧШЕННЫЕ) =====
-    def load_bmp_file(self):
-        """Загрузка реального BMP файла"""
-        filename = filedialog.askopenfilename(
-            title="Выберите BMP файл",
-            filetypes=[("BMP files", "*.bmp"), ("All files", "*.*")]
-        )
-
-        if filename and self.bmp_loader.load_bmp(filename):
-            self.display_bmp_comparison()
-            self.status_var.set(f"BMP загружен: {self.bmp_loader.width}x{self.bmp_loader.height}")
-        else:
-            messagebox.showerror("Ошибка", "Не удалось загрузить BMP файл")
-
+    # ===== LAB 5 Methods =====
     def create_test_bmp_image(self):
         """Создание тестового BMP изображения"""
         self.bmp_loader.create_test_image()
         self.display_bmp_comparison()
         self.status_var.set("Тестовое изображение создано")
+
+    def apply_scaling(self):
+        """Применение масштабирования с сравнением"""
+        if not self.bmp_loader.image_data:
+            # Если нет загруженного изображения, создаем тестовое
+            self.bmp_loader.create_test_image()
+
+        self.display_bmp_comparison()
+        self.status_var.set(f"Применено масштабирование, коэффициент: {self.scale_var.get()}")
 
     def display_bmp_comparison(self):
         """Показать сравнение методов масштабирования"""
@@ -738,7 +858,6 @@ class PainterApp:
 
         try:
             scale_factor = float(self.scale_var.get())
-            mode = self.scaling_mode.get()
 
             # Создаем основной фрейм для сравнения
             comparison_frame = ttk.Frame(self.bitmap_frame)
@@ -746,73 +865,57 @@ class PainterApp:
 
             # Заголовок
             ttk.Label(comparison_frame,
-                      text=f"Сравнение масштабирования (коэффициент: {scale_factor})",
+                      text=f"Масштабирование (коэффициент: {scale_factor})",
                       font=('Arial', 10, 'bold')).pack(pady=5)
 
-            # Фреймы для трех изображений
+            # Получаем масштабированные версии
+            nearest_data, nw, nh = self.bmp_loader.scale_image(scale_factor, "nearest")
+
+            # Отображаем изображения
+            display_size = 300  # Размер для отображения
+
+            orig_photo = self.bmp_loader.get_photo_image(width=display_size, height=display_size)
+            scaled_photo = self.bmp_loader.get_photo_image(nearest_data, width=display_size, height=display_size)
+
             images_frame = ttk.Frame(comparison_frame)
             images_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
             # Оригинал
             orig_frame = ttk.LabelFrame(images_frame,
                                         text=f"Оригинал ({self.bmp_loader.width}x{self.bmp_loader.height})")
-            orig_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-
-            # Ближайший сосед
-            nearest_frame = ttk.LabelFrame(images_frame,
-                                           text=f"Ближайший сосед")
-            nearest_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-
-            # Билинейная
-            linear_frame = ttk.LabelFrame(images_frame,
-                                          text=f"Билинейная")
-            linear_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
-
-            # Получаем масштабированные версии
-            nearest_data, nw, nh = self.bmp_loader.scale_image(scale_factor, "nearest")
-            linear_data, lw, lh = self.bmp_loader.scale_image(scale_factor, "linear")
-
-            # Отображаем изображения
-            display_size = 200  # Размер для отображения
-
-            orig_photo = self.bmp_loader.get_photo_image(width=display_size, height=display_size)
-            nearest_photo = self.bmp_loader.get_photo_image(nearest_data, width=display_size, height=display_size)
-            linear_photo = self.bmp_loader.get_photo_image(linear_data, width=display_size, height=display_size)
-
+            orig_frame.pack(side=tk.LEFT, padx=10, pady=5, fill=tk.BOTH, expand=True)
             ttk.Label(orig_frame, image=orig_photo).pack(padx=10, pady=10)
-            ttk.Label(nearest_frame, image=nearest_photo).pack(padx=10, pady=10)
-            ttk.Label(linear_frame, image=linear_photo).pack(padx=10, pady=10)
+
+            # Масштабированное
+            scaled_frame = ttk.LabelFrame(images_frame,
+                                          text=f"Масштабированное ({nw}x{nh})")
+            scaled_frame.pack(side=tk.RIGHT, padx=10, pady=5, fill=tk.BOTH, expand=True)
+            ttk.Label(scaled_frame, image=scaled_photo).pack(padx=10, pady=10)
 
             # Сохраняем ссылки на изображения
             orig_frame.image = orig_photo
-            nearest_frame.image = nearest_photo
-            linear_frame.image = linear_photo
-
-            # Настраиваем равномерное распределение колонок
-            images_frame.grid_columnconfigure(0, weight=1)
-            images_frame.grid_columnconfigure(1, weight=1)
-            images_frame.grid_columnconfigure(2, weight=1)
+            scaled_frame.image = scaled_photo
 
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректный коэффициент масштабирования")
 
-    def apply_scaling(self):
-        """Применение масштабирования с сравнением"""
-        if not self.bmp_loader.image_data:
-            # Если нет загруженного изображения, создаем тестовое
-            self.bmp_loader.create_test_image()
-
-        self.display_bmp_comparison()
-        self.status_var.set(f"Применено масштабирование, коэффициент: {self.scale_var.get()}")
-
     # ===== Common Methods =====
     def on_canvas_click(self, event):
         """Обработка клика по canvas"""
-        if self.current_spline:
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline and self.is_adding_points:
             # Добавляем контрольную точку для сплайна
             point = Point(event.x, event.y)
-            self.current_spline.add_control_point(point)
+            current_spline.add_control_point(point)
+            point_count = current_spline.get_point_count()
             self.redraw_canvas()
+            self.update_spline_info()
+            self.status_var.set(f"Добавлена точка {point_count}. Кликайте дальше или завершите сплайн")
+
+    def on_canvas_motion(self, event):
+        """Обработка движения мыши по canvas"""
+        # Можно добавить предпросмотр следующей точки
+        pass
 
     def redraw_canvas(self):
         """Перерисовка canvas"""
@@ -822,21 +925,28 @@ class PainterApp:
         for polygon in self.polygons:
             polygon.draw(self.canvas)
 
-        # Рисуем все сплайны
-        for spline in self.splines:
+        # Рисуем все завершенные сплайны
+        for spline in self.spline_manager.splines:
             spline.draw(self.canvas)
 
         # Рисуем текущий сплайн (если есть)
-        if self.current_spline:
-            self.current_spline.draw(self.canvas)
+        current_spline = self.spline_manager.get_current_spline()
+        if current_spline:
+            current_spline.draw(self.canvas)
 
     def clear_all(self):
-        """Очистка canvas"""
+        """Очистка всех объектов"""
         self.polygons.clear()
-        self.splines.clear()
+        self.spline_manager.clear_all_splines()
         self.current_polygon = None
-        self.current_spline = None
+        self.is_adding_points = False
         self.redraw_canvas()
+        self.update_spline_info()
+
+        # Очищаем панель bitmap
+        for widget in self.bitmap_frame.winfo_children():
+            widget.destroy()
+
         self.status_var.set("Все объекты удалены")
 
 
