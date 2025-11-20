@@ -1,0 +1,39 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def solve_equation():
+    t = np.linspace(-1, 1, 1000)
+
+    # Метод последовательных приближений
+    x = np.zeros_like(t)  # начальное приближение
+
+    for i in range(20):
+        x_new = (t ** 2 + 1) / (2 + np.abs(x)) + np.cos(6 * t)
+        if np.max(np.abs(x_new - x)) < 1e-8:
+            break
+        x = x_new
+
+    return t, x
+
+
+t, x = solve_equation()
+
+plt.figure(figsize=(10, 6))
+plt.plot(t, x, 'b-', linewidth=2, label='Решение x(t)')
+plt.xlabel('t')
+plt.ylabel('x(t)')
+plt.title('Решение уравнения: $x(t) = \\frac{t^2 + 1}{2 + |x(t)|} + \\cos(6t)$')
+plt.grid(True, alpha=0.3)
+
+# Покажем реальный диапазон
+plt.axhline(y=np.min(x), color='r', linestyle='--', alpha=0.7,
+            label=f'min = {np.min(x):.3f}')
+plt.axhline(y=np.max(x), color='g', linestyle='--', alpha=0.7,
+            label=f'max = {np.max(x):.3f}')
+
+plt.legend()
+plt.show()
+
+print(f"Реальный диапазон решения: [{np.min(x):.4f}, {np.max(x):.4f}]")
+print(f"Количество итераций: {i}")
